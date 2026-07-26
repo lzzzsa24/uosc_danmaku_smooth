@@ -16,7 +16,7 @@ jobs:
         run: |
           find . -name '*.lua' -not -path './.git/*' -print0 |
             while IFS= read -r -d '' file; do
-              lua5.1 -e 'assert(loadfile(arg[1]))' "$file"
+              LUA_CHECK_FILE="$file" lua5.1 -e 'assert(loadfile(os.getenv("LUA_CHECK_FILE")))'
             done
       - name: Run rendering benchmark
         run: lua5.1 tests/render_benchmark.lua
