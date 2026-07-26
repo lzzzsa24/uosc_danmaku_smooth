@@ -2,3 +2,6 @@ danmaku/*
 *.toml
 .*
 !.gitattributes
+!.github/
+!.github/**
+*.local.conf

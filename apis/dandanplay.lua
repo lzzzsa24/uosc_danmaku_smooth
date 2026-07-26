@@ -6,17 +6,42 @@ local function extract_url(url)
     return path
 end
 
-local function generateXSignature(url, time, appid, app_accept)
+local credentials_warning_shown = false
+
+local function trim(value)
+    return tostring(value or ""):match("^%s*(.-)%s*$")
+end
+
+local function generateXSignature(url, time, appid, app_secret)
     local url_path = extract_url(url)
     if not url_path then
         return nil
     end
 
-    local dataToHash = string.format("%s%d%s%s", AES.ECB.decrypt(KEY, Base64.decode(appid)),
-    time, url_path, AES.ECB.decrypt(KEY, Base64.decode(app_accept)))
+    local dataToHash = string.format("%s%d%s%s", appid, time, url_path, app_secret)
     local hash = Sha256(dataToHash)
     local base64Hash = Base64.encode(hex_to_bin(hash))
     return base64Hash
+end
+
+local function get_dandanplay_credentials()
+    local app_id = trim(options.dandanplay_app_id)
+    local app_secret = trim(options.dandanplay_app_secret)
+
+    if app_id ~= "" and app_secret ~= "" then
+        credentials_warning_shown = false
+        return app_id, app_secret
+    end
+
+    if not credentials_warning_shown then
+        local reason = app_id == "" and app_secret == ""
+            and "请先在 script-opts/uosc_danmaku.conf 中配置个人弹弹play AppId/AppSecret"
+            or "弹弹play AppId/AppSecret 配置不完整"
+        msg.error(reason)
+        show_message(reason, 5)
+        credentials_warning_shown = true
+    end
+    return nil, nil
 end
 
 -- 写入history.json
@@ -160,14 +185,21 @@ function make_danmaku_request_args(method, url, headers, body)
 
     table.insert(args, '--compressed')
 
-    if url:find("api%.dandanplay%.") then
+    if url:match("^https?://api%.dandanplay%.net[/:]") then
         local time = os.time()
-        local appid = "UgjRIH45lE1BBLNmir1WKw=="
-        local app_accept = "SzuWlFZAPRMqeWf9qmfp8dcvYr3hvxuSrIRZuAeEfko="
+        local app_id, app_secret = get_dandanplay_credentials()
+        if not app_id then
+            return nil
+        end
+        local signature = generateXSignature(url, time, app_id, app_secret)
+        if not signature then
+            msg.error("无法生成弹弹play请求签名")
+            return nil
+        end
         table.insert(args, '-H')
-        table.insert(args, string.format('X-AppId: %s', AES.ECB.decrypt(KEY, Base64.decode(appid))))
+        table.insert(args, string.format('X-AppId: %s', app_id))
         table.insert(args, '-H')
-        table.insert(args, string.format('X-Signature: %s', generateXSignature(url, time, appid, app_accept)))
+        table.insert(args, string.format('X-Signature: %s', signature))
         table.insert(args, '-H')
         table.insert(args, string.format('X-Timestamp: %s', time))
     end

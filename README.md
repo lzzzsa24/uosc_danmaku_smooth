@@ -1,9 +1,42 @@
-# uosc_danmaku
+# uosc_danmaku_smooth
 
 在MPV播放器中加载弹弹play弹幕，基于 uosc UI框架和弹弹play API的mpv弹幕扩展插件
 
+> [!IMPORTANT]
+> 本项目是 [Tony15246/uosc_danmaku](https://github.com/Tony15246/uosc_danmaku) 的 MIT 性能优化分支，以 `2.2.0` 开发版为基线。项目保留上游版权和许可证，不隶属于弹弹play官方。
+
+## 本分支的改进
+
+- 缓存弹幕文本的转义和字号处理，避免播放过程中每帧重复执行字符串替换。
+- 缓存 ASS 样式和 OSD 状态，只在内容或分辨率变化时更新对应图层。
+- 使用专用二分查找与直接数组写入，减少热路径中的闭包和临时对象。
+- 将简繁转换缓存改为 O(1) FIFO 淘汰，避免大量弹幕时反复移动数组。
+- 不再内置共享 AppId/AppSecret，避免公共限额耗尽和凭证误提交。
+
+本机 LuaJIT 合成基准（5 次运行中位数）：
+
+| 场景 | 上游基线 | 优化版 | 耗时降低 |
+| --- | ---: | ---: | ---: |
+| 12,000 条弹幕、300 帧渲染 | 0.899 s | 0.211 s | 76.5% |
+| 20,000 条弹幕简繁转换及布局 | 0.098 s | 0.056 s | 42.9% |
+
+基准只用于比较相同输入下的 Lua 开销，实际效果还会受到视频帧率、弹幕密度和硬件影响。可使用
+`luajit tests/render_benchmark.lua` 与 `luajit tests/parse_benchmark.lua` 复测。
+
+### 使用弹弹play官方 API
+
+请在 mpv 配置目录的 `script-opts/uosc_danmaku.conf` 中填写自己申请的凭证：
+
+```ini
+dandanplay_app_id=你的AppId
+dandanplay_app_secret=你的AppSecret
+```
+
+不要把这个配置文件、AppSecret 或登录令牌提交到 GitHub。使用兼容弹弹play接口的自建服务时，可以修改
+`api_server`，该服务是否要求凭证由服务端决定。
+
 > [!WARNING]
-> Release1.2.0及Release1.2.0之前的发行版，都由于弹弹play接口使用政策改版，部分功能无法使用。如果发现插件功能异常，比如搜索弹幕总是显示无结果，请拉取或下载主分支最新源代码；或下载[最新发行版](https://github.com/Tony15246/uosc_danmaku/releases/latest)
+> Release1.2.0及Release1.2.0之前的发行版，都由于弹弹play接口使用政策改版，部分功能无法使用。如果发现插件功能异常，比如搜索弹幕总是显示无结果，请拉取或下载主分支最新源代码；或下载[最新发行版](https://github.com/lzzzsa24/uosc_danmaku_smooth/releases/latest)
 
 > [!NOTE]
 > 已添加对mpv内部 `mp.input`的支持，在uosc不可用时通过键绑定调用此方式渲染菜单
@@ -111,7 +144,12 @@
 └── scripts
 ```
 
-想要使用本插件，请将本插件完整地[下载](https://github.com/Tony15246/uosc_danmaku/releases)或者克隆到 `scripts`目录下即可使用，文件结构参阅下方
+想要使用本插件，请从[本项目 Releases](https://github.com/lzzzsa24/uosc_danmaku_smooth/releases)下载，并将文件夹改名为
+`uosc_danmaku` 后放入 `scripts`；也可以直接克隆：
+
+```bash
+git clone https://github.com/lzzzsa24/uosc_danmaku_smooth.git uosc_danmaku
+```
 
 > [!IMPORTANT]
 > 
@@ -132,11 +170,22 @@
     ├── modules
     │   ├── base64.lua
     │   ├── guess.lua
+    │   ├── hash.lua
+    │   ├── inflate.lua
     │   ├── md5.lua
     │   ├── menu.lua
     │   ├── options.lua
+    │   ├── parse.lua
     │   ├── render.lua
+    │   ├── update.lua
     │   └── utils.lua
+    ├── sites
+    │   ├── bahamut.lua
+    │   ├── bilibili.lua
+    │   ├── iqiyi.lua
+    │   ├── mgtv.lua
+    │   ├── tencentvideo.lua
+    │   └── youku.lua
     └── README.md
 ```
 
@@ -783,6 +832,8 @@ api_server
 
 ```
 api_server=https://api.dandanplay.net
+dandanplay_app_id=你的AppId
+dandanplay_app_secret=你的AppSecret
 ```
 
 </details>
@@ -835,14 +886,14 @@ tmdb_api_key
 
 > **⚠️NOTE！**
 > 
-> 不设置此选项的情况下默认使用专为本项目申请的API Key。另外，自定义此选项时还需要对获取到的 API Key 进行 base64 编码。
+> 本分支不内置 TMDB API Key。自定义此选项时需要先对自己的 API Key 进行 base64 编码。
 
 #### 使用方法
 
 想要使用此选项，请在mpv配置文件夹下的 `script-opts`中创建 `uosc_danmaku.conf`文件并自定义如下内容：
 
 ```
-tmdb_api_key=NmJmYjIxOTZkNzIyN2UyMTIzMGM3Y2YzZjQ4MDNkZGM=
+tmdb_api_key=BASE64编码后的个人TMDB_API_Key
 ```
 
 </details>

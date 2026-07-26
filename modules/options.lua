@@ -6,13 +6,16 @@ options = {
     -- 可指定多个用逗号分隔的有序 api_server 列表
     -- 支持每项使用 '|' 或 '#' 分隔备注，例如: "https://a.example.com|备用A" 或 "https://b.example.com#备用B"
     api_server = "https://api.dandanplay.net",
+    -- 访问弹弹play官方 API 所需的个人应用凭证。仅在本地 script-opts/uosc_danmaku.conf 中填写
+    dandanplay_app_id = "",
+    dandanplay_app_secret = "",
     -- 指定 b 站和爱腾优的弹幕获取的兜底服务器地址，主要用于获取非动画弹幕
     -- 可用： https://api.danmu.icu，https://dmku.hls.one
     fallback_server = "https://api.danmu.icu",
     -- 设置 tmdb 的 API Key，用于获取非动画条目的中文信息(当搜索内容非中文时)
     -- 可以在 https://www.themoviedb.org 注册后去个人账号设置界面获取
     -- 注意：自定义此参数时还需要对获取到的 API Key 进行 base64 编码
-    tmdb_api_key = "NmJmYjIxOTZkNzIyN2UyMTIzMGM3Y2YzZjQ4MDNkZGM=",
+    tmdb_api_key = "",
     auto_load = false,
     autoload_local_danmaku = false,
     autoload_for_url = false,

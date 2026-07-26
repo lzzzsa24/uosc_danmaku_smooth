@@ -1,8 +1,8 @@
 local msg = require('mp.msg')
 local utils = require("mp.utils")
 
-local repo = "Tony15246/uosc_danmaku"
-local zip_file = utils.join_path(os.getenv("TEMP") or "/tmp/", "uosc_danmaku.zip")
+local repo = "lzzzsa24/uosc_danmaku_smooth"
+local zip_file = utils.join_path(os.getenv("TEMP") or "/tmp/", "uosc_danmaku_smooth.zip")
 
 local local_version = VERSION or "0.0.0"
 local platform = mp.get_property("platform")
@@ -10,13 +10,15 @@ local platform = mp.get_property("platform")
 local function version_greater(v1, v2)
     local function parse(ver)
         local a, b, c = ver:match("v?(%d+)%.(%d+)%.(%d+)")
-        return tonumber(a), tonumber(b), tonumber(c)
+        local smooth = ver:match("smooth%.(%d+)") or 0
+        return tonumber(a), tonumber(b), tonumber(c), tonumber(smooth)
     end
-    local a1, a2, a3 = parse(v1)
-    local b1, b2, b3 = parse(v2)
+    local a1, a2, a3, a4 = parse(v1)
+    local b1, b2, b3, b4 = parse(v2)
     if a1 ~= b1 then return a1 > b1 end
     if a2 ~= b2 then return a2 > b2 end
-    return a3 > b3
+    if a3 ~= b3 then return a3 > b3 end
+    return a4 > b4
 end
 
 local function get_latest_release(repo)

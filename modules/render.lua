@@ -7,39 +7,142 @@ local osd_width, osd_height, pause = 0, 0, true
 local time_pos_observer_active = false
 local overlay_low = mp.create_osd_overlay('ass-events')
 local overlay_high = mp.create_osd_overlay('ass-events')
+local overlay_state = {
+    low = { data = nil, width = nil, height = nil, visible = false },
+    high = { data = nil, width = nil, height = nil, visible = false },
+}
+local style_cache = {}
+local re_entity = "&#%d+;"
+local re_fs = "\\fs(%d+)"
+local re_move = "\\move%(.-%)"
+
+local function clear_overlays()
+    overlay_low:remove()
+    overlay_high:remove()
+    overlay_state.low.data = nil
+    overlay_state.low.visible = false
+    overlay_state.high.data = nil
+    overlay_state.high.visible = false
+end
+
+local function update_overlay(overlay, state, data, width, height, z)
+    if state.visible
+        and state.data == data
+        and state.width == width
+        and state.height == height
+    then
+        return
+    end
+
+    overlay.res_x = width
+    overlay.res_y = height
+    overlay.z = z
+    overlay.data = data
+    overlay:update()
+
+    state.data = data
+    state.width = width
+    state.height = height
+    state.visible = true
+end
+
+local function get_ass_prefix(fontname, fontsize)
+    local opacity = tonumber(options.opacity) or 0
+    local outline = options.outline
+    local shadow = options.shadow
+    local bold = options.bold and "1" or "0"
+
+    if style_cache.fontname ~= fontname
+        or style_cache.fontsize ~= fontsize
+        or style_cache.opacity ~= opacity
+        or style_cache.outline ~= outline
+        or style_cache.shadow ~= shadow
+        or style_cache.bold ~= bold
+    then
+        local alpha = string.format("%02X", (1 - opacity) * 255)
+        style_cache.prefix = string.format(
+            "{\\rDefault\\fn%s\\fs%d\\c&HFFFFFF&\\alpha&H%s\\bord%s\\shad%s\\b%s\\q2}",
+            fontname,
+            fontsize,
+            alpha,
+            outline,
+            shadow,
+            bold
+        )
+        style_cache.fontname = fontname
+        style_cache.fontsize = fontsize
+        style_cache.opacity = opacity
+        style_cache.outline = outline
+        style_cache.shadow = shadow
+        style_cache.bold = bold
+    end
+
+    return style_cache.prefix
+end
+
+local function prepare_event_text(event)
+    if event._render_text ~= nil then
+        return event._render_text
+    end
+
+    local text = event.text or ""
+    text = text:gsub(re_entity, "")
+    if text:find("\\fs", 1, true) then
+        text = text:gsub(re_fs, function(size)
+            return string.format("\\fs%d", math.floor((tonumber(size) or 0) * 1.5))
+        end)
+    end
+    if event.move then
+        text = text:gsub(re_move, "")
+    end
+
+    event._render_text = text
+    return text
+end
+
+local function first_visible_index(comments, target)
+    local lo, hi = 1, #comments
+    local result = hi + 1
+
+    while lo <= hi do
+        local mid = math.floor((lo + hi) / 2)
+        if comments[mid].start_time >= target then
+            result = mid
+            hi = mid - 1
+        else
+            lo = mid + 1
+        end
+    end
+
+    return result
+end
 
 local function realtime_position_text(event, pos, displayarea)
     if not event.move then
         local _, current_y = unpack(event.pos)
         if not current_y or tonumber(current_y) > displayarea then return end
-        if event.style ~= "SP" and event.style ~= "MSG" then
-            return string.format("{\\an8}%s", event.text)
-        else
-            return string.format("{\\an7}%s", event.text)
-        end
+        local alignment = event.style ~= "SP" and event.style ~= "MSG" and 8 or 7
+        return string.format("{\\an%d}%s", alignment, prepare_event_text(event))
     end
 
     local x1, y1, x2, y2 = unpack(event.move)
-    -- 计算移动的时间范围
-    local duration = event.end_time - event.start_time  --mean: options.scrolltime
-    local progress = (pos - event.start_time) / duration  -- 移动进度 [0, 1]
+    local duration = event.end_time - event.start_time
+    local progress = (pos - event.start_time) / duration
 
-    -- 计算当前坐标
-    local current_x = tonumber(x1 + (x2 - x1) * progress)
-    local current_y = tonumber(y1 + (y2 - y1) * progress)
+    local current_x = x1 + (x2 - x1) * progress
+    local current_y = y1 + (y2 - y1) * progress
 
-    -- 移除 \move 标签并应用当前坐标
-    local clean_text = event.text:gsub("\\move%(.-%)", "")
     if current_y > displayarea then return end
     if event.style ~= "SP" and event.style ~= "MSG" then
-        return string.format("{\\pos(%.1f,%.1f)\\an8}%s", current_x, current_y, clean_text)
+        return string.format("{\\pos(%.1f,%.1f)\\an8}%s", current_x, current_y, prepare_event_text(event))
     else
-        return string.format("{\\pos(%.1f,%.1f)\\an7}%s", current_x, current_y, clean_text)
+        return string.format("{\\pos(%.1f,%.1f)\\an7}%s", current_x, current_y, prepare_event_text(event))
     end
 end
 
 function render(pos_arg)
-    if COMMENTS == nil then return end
+    local comments = COMMENTS
+    if comments == nil then return end
 
     local pos, err
     if pos_arg == nil then
@@ -52,86 +155,60 @@ function render(pos_arg)
     end
 
     if not pos then
-        overlay_low:remove()
-        overlay_high:remove()
+        clear_overlays()
         return
     end
 
     local fontname = options.fontname
-    local fontsize = options.fontsize
-    local opacity = tonumber(options.opacity)
-    local alpha = string.format("%02X", (1 - (opacity or 0)) * 255)
+    local fontsize = tonumber(options.fontsize) or 50
 
     local width, height = 1920, 1080
-    local ratio = osd_width / osd_height
-    if width / height < ratio then
+    local ratio = osd_height > 0 and osd_width / osd_height or width / height
+    if ratio > 0 and width / height < ratio then
         height = width / ratio
-        fontsize = options.fontsize - ratio * 2
+        fontsize = fontsize - ratio * 2
     end
+    fontsize = math.max(1, math.floor(fontsize + 0.5))
 
     local ass_events_low = {}
     local ass_events_high = {}
-    local max_display = math.max(options.scrolltime, options.fixtime)
+    local low_count, high_count = 0, 0
+    local max_display = math.max(tonumber(options.scrolltime) or 15, tonumber(options.fixtime) or 5)
     local window_start = pos - max_display
 
-    -- 跳过已结束的弹幕
-    local lo = binary_search(COMMENTS, window_start, function(item) return item.start_time end)
+    local lo = first_visible_index(comments, window_start)
+    local ass_prefix = get_ass_prefix(fontname, fontsize)
+    local displayarea = height * (tonumber(options.displayarea) or 0.85)
 
-    local re_entity = "&#%d+;"
-    local re_fs = "\\fs(%d+)"
-    local ass_prefix = string.format("{\\rDefault\\fn%s\\fs%d\\c&HFFFFFF&\\alpha&H%s\\bord%s\\shad%s\\b%s\\q2}",
-        fontname, fontsize, alpha, options.outline, options.shadow, options.bold and "1" or "0")
-
-    for i = lo, #COMMENTS do
-        local event = COMMENTS[i]
+    for i = lo, #comments do
+        local event = comments[i]
         if not event then break end
 
-        if event.start_time > pos then break end  -- 后续弹幕提前退出
+        if event.start_time > pos then break end
         if event.end_time >= pos then
-            local text = realtime_position_text(event, pos, height * options.displayarea)
+            local text = realtime_position_text(event, pos, displayarea)
             if text then
-                text = text:gsub(re_entity, "")
-            end
-
-            if text and text:match(re_fs) then
-                text = text:gsub(re_fs, function(size)
-                    local n = tonumber(size) or 0
-                    return string.format("\\fs%d", math.floor(n * 1.5))
-                end)
-            end
-
-            -- 构建 ASS 字符串
-            local ass_text = text and (ass_prefix .. text)
-            if ass_text then
+                local ass_text = ass_prefix .. text
                 if event.layer == nil or tonumber(event.layer) == 0 then
-                    table.insert(ass_events_low, ass_text)
+                    low_count = low_count + 1
+                    ass_events_low[low_count] = ass_text
                 else
-                    table.insert(ass_events_high, ass_text)
+                    high_count = high_count + 1
+                    ass_events_high[high_count] = ass_text
                 end
             end
         end
     end
 
-    -- 写入低层（滚动）和高层（顶/底）overlay，并设置 z 值以控制堆叠
-    overlay_low.res_x = width
-    overlay_low.res_y = height
-    overlay_low.z = 0
-    overlay_low.data = table.concat(ass_events_low, '\n')
-    overlay_low:update()
-
-    overlay_high.res_x = width
-    overlay_high.res_y = height
-    overlay_high.z = 1
-    overlay_high.data = table.concat(ass_events_high, '\n')
-    overlay_high:update()
+    update_overlay(overlay_low, overlay_state.low, table.concat(ass_events_low, '\n'), width, height, 0)
+    update_overlay(overlay_high, overlay_state.high, table.concat(ass_events_high, '\n'), width, height, 1)
 end
 
 local function time_pos_callback(_, time_pos)
     if time_pos then
         render(time_pos)
     else
-        overlay_low:remove()
-        overlay_high:remove()
+        clear_overlays()
     end
 end
 
@@ -196,8 +273,7 @@ function hide_danmaku_func()
     stop_time_observer()
     mp.set_property_bool(HAS_DANMAKU, false)
     set_danmaku_visibility(false)
-    overlay_low:remove()
-    overlay_high:remove()
+    clear_overlays()
     if filter_state("danmaku") then
         mp.commandv("vf", "remove", "@danmaku")
     end
@@ -253,8 +329,7 @@ end)
 mp.add_hook("on_unload", 50, function()
     COMMENTS, DELAY = nil, 0
     stop_time_observer()
-    overlay_low:remove()
-    overlay_high:remove()
+    clear_overlays()
     mp.set_property_native(DELAY_PROPERTY, 0)
     if filter_state("danmaku") then
         mp.commandv("vf", "remove", "@danmaku")

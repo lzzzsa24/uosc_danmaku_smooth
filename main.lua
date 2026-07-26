@@ -1,11 +1,10 @@
-VERSION = "2.2.0"
+VERSION = "2.2.0-smooth.1"
 
 mp.commandv('script-message', 'uosc_danmaku-version', VERSION)
 
 local msg = require('mp.msg')
 local utils = require("mp.utils")
 
-AES = require("modules/aes")
 Base64 = require("modules/base64")
 MD5 = require("modules/md5")
 Sha256 = require("modules/hash")
@@ -41,15 +40,6 @@ DANMAKU_SWITCH_ON = string.format("user-data/%s/danmaku-switch-on", mp.get_scrip
 mp.set_property_bool(DANMAKU_SWITCH_ON, false)
 DANMAKU_COUNT = string.format("user-data/%s/danmaku-count", mp.get_script_name())
 mp.set_property_native(DANMAKU_COUNT, 0)
-KEY = table_to_zero_indexed({
-    0x00,0x01,0x02,0x03,0x04,
-    0x05,0x06,0x07,0x08,0x09,
-    0x0a,0x0b,0x0c,0x0d,0x0e,
-    0x0f,0x10,0x11,0x12,0x13,
-    0x14,0x15,0x16,0x17,0x18,
-    0x19,0x1a,0x1b,0x1c,0x1d,
-    0x1e,0x1f
-})
 
 PLATFORM = (function()
     local platform = mp.get_property_native("platform")

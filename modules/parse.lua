@@ -156,19 +156,54 @@ end
 local ch_convert_cache = {}
 local ch_cache_keys = {}
 local ch_cache_max = 5000
+local ch_cache_head = 1
+local ch_cache_tail = 0
+local ch_cache_size = 0
+local ch_cache_mode = nil
+
+local function reset_ch_convert_cache(mode)
+    ch_convert_cache = {}
+    ch_cache_keys = {}
+    ch_cache_head = 1
+    ch_cache_tail = 0
+    ch_cache_size = 0
+    ch_cache_mode = mode
+end
 
 local function ch_convert_cached(text)
     if type(text) ~= "string" or text == "" then return text end
+    if ch_cache_mode ~= options.chConvert then
+        reset_ch_convert_cache(options.chConvert)
+    end
+
     local cached = ch_convert_cache[text]
     if cached ~= nil then return cached end
 
     local converted = ch_convert(text)
     ch_convert_cache[text] = converted
-    ch_cache_keys[#ch_cache_keys+1] = text
+    ch_cache_tail = ch_cache_tail + 1
+    ch_cache_keys[ch_cache_tail] = text
+    ch_cache_size = ch_cache_size + 1
 
-    if #ch_cache_keys > ch_cache_max then
-        local old_key = table.remove(ch_cache_keys, 1)
+    if ch_cache_size > ch_cache_max then
+        local old_key = ch_cache_keys[ch_cache_head]
+        ch_cache_keys[ch_cache_head] = nil
+        ch_cache_head = ch_cache_head + 1
+        ch_cache_size = ch_cache_size - 1
         ch_convert_cache[old_key] = nil
+    end
+
+    -- Compact the FIFO index occasionally without shifting entries on every eviction.
+    if ch_cache_head > ch_cache_max and ch_cache_head > ch_cache_tail / 2 then
+        local compacted = {}
+        local compacted_tail = 0
+        for i = ch_cache_head, ch_cache_tail do
+            compacted_tail = compacted_tail + 1
+            compacted[compacted_tail] = ch_cache_keys[i]
+        end
+        ch_cache_keys = compacted
+        ch_cache_head = 1
+        ch_cache_tail = compacted_tail
     end
 
     return converted
@@ -699,7 +734,12 @@ function convert_danmaku_to_ass_events(force)
         end
 
         if end_time then
-            table.insert(pre_events, {orig_time = orig_time, start_time = appear_time, end_time = end_time, danmaku = d})
+            pre_events[#pre_events + 1] = {
+                orig_time = orig_time,
+                start_time = appear_time,
+                end_time = end_time,
+                danmaku = d,
+            }
         end
     end
 
@@ -775,8 +815,8 @@ function convert_danmaku_to_ass_events(force)
                 layer = (style == "R2L") and 0 or 1,
                 source = d.source,
             }
-            table.insert(ass_events, event)
-            COMMENTS = ass_events
+            ass_events[#ass_events + 1] = event
         end
     end
+    COMMENTS = ass_events
 end
