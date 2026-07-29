@@ -1,4 +1,4 @@
-VERSION = "2.2.0-smooth.1"
+VERSION = "2.2.0-smooth.2"
 
 mp.commandv('script-message', 'uosc_danmaku-version', VERSION)
 
@@ -11,6 +11,7 @@ Sha256 = require("modules/hash")
 
 require("modules/options")
 require("modules/utils")
+local DanmakuCache = require("modules/cache")
 require("modules/parse")
 require("modules/guess")
 require('modules/render')
@@ -29,6 +30,9 @@ require("sites/youku")
 
 DANMAKU_PATH = os.getenv("TEMP") or "/tmp/"
 HISTORY_PATH = mp.command_native({"expand-path", options.history_path})
+local cache_path_option = options.danmaku_cache_path ~= ""
+    and options.danmaku_cache_path or "~~/uosc_danmaku-cache"
+DANMAKU_CACHE_PATH = mp.command_native({"expand-path", cache_path_option})
 PID = utils.getpid()
 DANMAKU = {sources = {}, count = 1}
 ENABLED, COMMENTS, DELAY = false, nil, 0
@@ -58,6 +62,154 @@ PLATFORM = (function()
     end
     return "linux"
 end)()
+
+local function ensure_danmaku_cache_directory(path)
+    local info = utils.file_info(path)
+    if info and info.is_dir then
+        return true
+    end
+
+    local args
+    if PLATFORM == "windows" then
+        args = {os.getenv("ComSpec") or "cmd.exe", "/d", "/c", "mkdir", path}
+    else
+        args = {"mkdir", "-p", path}
+    end
+
+    local result = mp.command_native({
+        name = "subprocess",
+        playback_only = false,
+        capture_stdout = true,
+        capture_stderr = true,
+        args = args,
+    })
+    return type(result) == "table" and result.status == 0
+end
+
+local danmaku_cache = DanmakuCache.new({
+    directory = DANMAKU_CACHE_PATH,
+    join_path = utils.join_path,
+    hash = MD5.sum,
+    ensure_directory = ensure_danmaku_cache_directory,
+    read = read_file,
+    decode = utils.parse_json,
+    write = write_json_file,
+    list = function(path)
+        return utils.readdir(path, "files") or {}
+    end,
+    remove = os.remove,
+    expire_days = options.danmaku_cache_expire_days,
+    warn = function(message) msg.warn(message) end,
+})
+
+local function get_danmaku_cache_identity()
+    local path = mp.get_property("path")
+    if not path or is_protocol(path) then
+        return nil
+    end
+
+    local video_name = mp.get_property("filename")
+    if not video_name or video_name == "" then
+        return nil
+    end
+
+    local file_size = mp.get_property_number("file-size", 0)
+    if not file_size or file_size <= 0 then
+        local info = utils.file_info(path)
+        file_size = info and info.size or 0
+    end
+    return video_name, file_size
+end
+
+function build_danmaku_cache_context(episode_id, api_server)
+    local video_name, file_size = get_danmaku_cache_identity()
+    if not video_name then
+        return nil
+    end
+
+    return {
+        video_name = video_name,
+        file_size = file_size,
+        keyword = DANMAKU.search_keyword or DANMAKU.anime
+            or mp.get_property("filename/no-ext"),
+        anime_title = DANMAKU.anime,
+        episode_title = DANMAKU.episode,
+        episode_id = episode_id or DANMAKU.episode_id,
+        api_server = api_server or DANMAKU.api_server,
+    }
+end
+
+function cache_dandanplay_comments(comments, context)
+    if not options.danmaku_cache then
+        return false
+    end
+
+    context = context or build_danmaku_cache_context()
+    if not context then
+        return false
+    end
+
+    local saved = danmaku_cache:put(
+        context.video_name,
+        context.file_size,
+        context,
+        comments
+    )
+    if saved then
+        msg.verbose("已更新本地弹幕缓存：" .. context.video_name)
+    end
+    return saved
+end
+
+local function clear_current_danmaku_cache()
+    local video_name, file_size = get_danmaku_cache_identity()
+    if video_name then
+        return danmaku_cache:delete(video_name, file_size)
+    end
+    return false
+end
+
+local function load_danmaku_from_cache()
+    if not options.danmaku_cache then
+        return false
+    end
+
+    local video_name, file_size = get_danmaku_cache_identity()
+    if not video_name then
+        return false
+    end
+
+    local entry = danmaku_cache:get(video_name, file_size)
+    if not entry then
+        return false
+    end
+
+    local source_url = "local-cache://dandanplay"
+    DANMAKU.source = "dandanplay"
+    DANMAKU.search_keyword = entry.keyword
+    DANMAKU.anime = entry.anime_title
+    DANMAKU.episode = entry.episode_title
+    DANMAKU.episode_id = entry.episode_id
+    DANMAKU.api_server = entry.api_server ~= "" and entry.api_server or nil
+    save_danmaku_data(entry.comments, source_url, "local_cache")
+    set_danmaku_button()
+    load_danmaku(false, true)
+
+    local label = entry.keyword ~= "" and entry.keyword or video_name
+    show_message(string.format("已从本地缓存加载弹幕：%s（%d 条）", label, #entry.comments), 3)
+    msg.info(string.format("本地弹幕缓存命中：%s，共 %d 条", video_name, #entry.comments))
+    return true
+end
+
+if options.danmaku_cache then
+    mp.add_timeout(0, function()
+        local removed = danmaku_cache:cleanup()
+        if removed > 0 then
+            msg.info(string.format("已清理 %d 个超过 %d 天未使用的弹幕缓存",
+                removed, tonumber(options.danmaku_cache_expire_days) or 30))
+        end
+    end)
+end
 
 local rebuild_convert_timer = nil
 
@@ -283,7 +435,9 @@ local function clear_source()
     local path = mp.get_property("path")
     local history_json = read_file(HISTORY_PATH)
 
-    if not path or not history_json then return end
+    if not path then return end
+    clear_current_danmaku_cache()
+    if not history_json then return end
 
     local history = utils.parse_json(history_json) or {}
     if history[path] == nil then return end
@@ -659,6 +813,9 @@ function init(path)
         if file_exists(danmaku_xml) then
             add_danmaku_source_local(danmaku_xml, true)
         else
+            if load_danmaku_from_cache() then
+                return
+            end
             auto_load_danmaku(path, dir, filename)
             addon_danmaku(dir, true)
         end
@@ -701,6 +858,9 @@ mp.register_event("file-loaded", function()
 
     if options.auto_load then
         ENABLED = true
+        if load_danmaku_from_cache() then
+            return
+        end
         auto_load_danmaku(path, dir, filename)
         addon_danmaku(dir, false)
         return

@@ -17,6 +17,12 @@ options = {
     -- 注意：自定义此参数时还需要对获取到的 API Key 进行 base64 编码
     tmdb_api_key = "",
     auto_load = false,
+    -- 成功匹配后缓存弹弹play弹幕；再次打开同名同大小的视频时优先从本地读取
+    danmaku_cache = true,
+    -- 本地弹幕缓存目录
+    danmaku_cache_path = "~~/uosc_danmaku-cache",
+    -- 超过指定天数未命中的缓存会自动清理；设为 0 可禁用过期清理
+    danmaku_cache_expire_days = 30,
     autoload_local_danmaku = false,
     autoload_for_url = false,
     save_danmaku = false,

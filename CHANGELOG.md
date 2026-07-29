@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.2.0-smooth.2
+
+- Cache successful DanDanPlay comment responses in one file per video.
+- Reuse cached comments before automatic matching or downloading.
+- Retain the manual search keyword and matched episode metadata with each cache.
+- Remove cache files that have not been used for 30 days.
+
 ## 2.2.0-smooth.1
 
 - Cache normalized ASS event text on first use.
