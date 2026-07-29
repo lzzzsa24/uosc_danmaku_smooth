@@ -23,6 +23,8 @@ options = {
     danmaku_cache_path = "~~/uosc_danmaku-cache",
     -- 超过指定天数未命中的缓存会自动清理；设为 0 可禁用过期清理
     danmaku_cache_expire_days = 30,
+    -- 缓存下载超过指定小时数后重新请求并覆盖；设为 0 可禁用定时刷新
+    danmaku_cache_refresh_hours = 5,
     autoload_local_danmaku = false,
     autoload_for_url = false,
     save_danmaku = false,
