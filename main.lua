@@ -1,4 +1,4 @@
-VERSION = "2.2.0-smooth.2"
+VERSION = "2.2.0-smooth.3"
 
 mp.commandv('script-message', 'uosc_danmaku-version', VERSION)
 
@@ -99,6 +99,7 @@ local danmaku_cache = DanmakuCache.new({
     end,
     remove = os.remove,
     expire_days = options.danmaku_cache_expire_days,
+    refresh_hours = options.danmaku_cache_refresh_hours,
     warn = function(message) msg.warn(message) end,
 })
 
@@ -179,18 +180,30 @@ local function load_danmaku_from_cache()
         return false
     end
 
-    local entry = danmaku_cache:get(video_name, file_size)
+    local entry, cache_status = danmaku_cache:get(video_name, file_size)
     if not entry then
         return false
     end
 
-    local source_url = "local-cache://dandanplay"
     DANMAKU.source = "dandanplay"
     DANMAKU.search_keyword = entry.keyword
     DANMAKU.anime = entry.anime_title
     DANMAKU.episode = entry.episode_title
     DANMAKU.episode_id = entry.episode_id
     DANMAKU.api_server = entry.api_server ~= "" and entry.api_server or nil
+
+    if cache_status == "stale" then
+        if entry.episode_id and DANMAKU.api_server then
+            local hours = tonumber(options.danmaku_cache_refresh_hours) or 5
+            show_message(string.format("本地弹幕缓存已超过 %s 小时，正在更新...", hours), 5)
+            msg.info(string.format("本地弹幕缓存需要更新：%s", video_name))
+            set_episode_id(entry.episode_id, false, DANMAKU.api_server)
+            return true
+        end
+        return false
+    end
+
+    local source_url = "local-cache://dandanplay"
     save_danmaku_data(entry.comments, source_url, "local_cache")
     set_danmaku_button()
     load_danmaku(false, true)

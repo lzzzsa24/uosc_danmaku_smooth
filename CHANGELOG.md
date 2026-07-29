@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.0-smooth.3
+
+- Record the download timestamp for each cached danmaku file.
+- Refresh and overwrite cached comments after five hours.
+- Reuse the cached episode ID for refreshes to avoid repeating title or hash matching.
+
 ## 2.2.0-smooth.2
 
 - Cache successful DanDanPlay comment responses in one file per video.

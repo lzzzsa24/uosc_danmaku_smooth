@@ -3,6 +3,7 @@ local Cache = {}
 local CACHE_VERSION = 1
 local CACHE_FILE_PREFIX = "entry-"
 local SECONDS_PER_DAY = 24 * 60 * 60
+local SECONDS_PER_HOUR = 60 * 60
 
 local function trim(value)
     return tostring(value or ""):match("^%s*(.-)%s*$")
@@ -35,6 +36,20 @@ function Cache.is_expired(entry, now, expire_days)
         return true
     end
     return last_used_at < (now - days * SECONDS_PER_DAY)
+end
+
+function Cache.needs_refresh(entry, now, refresh_hours)
+    local hours = tonumber(refresh_hours) or 5
+    if hours <= 0 then
+        return false
+    end
+
+    -- smooth.2 缓存没有 downloaded_at，使用 created_at 保持向后兼容。
+    local downloaded_at = tonumber(entry and (entry.downloaded_at or entry.created_at))
+    if not downloaded_at then
+        return true
+    end
+    return downloaded_at < (now - hours * SECONDS_PER_HOUR)
 end
 
 local function is_valid_entry(entry)
@@ -71,6 +86,7 @@ function Cache.new(config)
         remove = config.remove,
         now = config.now or os.time,
         expire_days = tonumber(config.expire_days) or 30,
+        refresh_hours = tonumber(config.refresh_hours) or 5,
         warn = config.warn or function() end,
     }
 
@@ -158,14 +174,18 @@ function Cache.new(config)
             self.warn("本地弹幕缓存键冲突，已忽略：" .. path)
             return nil
         end
-        if Cache.is_expired(entry, self.now(), self.expire_days) then
+        local now = self.now()
+        if Cache.is_expired(entry, now, self.expire_days) then
             pcall(self.remove, path)
-            return nil
+            return nil, "expired"
+        end
+        if Cache.needs_refresh(entry, now, self.refresh_hours) then
+            return entry, "stale"
         end
 
-        entry.last_used_at = self.now()
+        entry.last_used_at = now
         self:_save(path, entry)
-        return entry
+        return entry, "hit"
     end
 
     function self:delete(video_name, file_size)
@@ -204,6 +224,7 @@ function Cache.new(config)
             video_name = trim(video_name),
             file_size = normalize_size(file_size),
             created_at = previous and previous.created_at or now,
+            downloaded_at = now,
             last_used_at = now,
             comments = comments,
             comment_count = #comments,

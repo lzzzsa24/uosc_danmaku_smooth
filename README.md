@@ -489,7 +489,7 @@ danmaku_cache
 
 #### 功能说明
 
-启用 `auto_load` 后，插件会把成功匹配的弹幕按“完整视频文件名 + 文件大小”保存到本地，并记录本次搜索关键词及剧集信息。再次打开同名同大小的视频时会优先读取缓存，不再重复执行在线匹配和弹幕下载。每次命中都会刷新最后使用时间，超过 30 天未使用的缓存文件会在插件启动时自动清理。
+启用 `auto_load` 后，插件会把成功匹配的弹幕按“完整视频文件名 + 文件大小”保存到本地，并记录本次搜索关键词、剧集信息和弹幕下载时间。再次打开同名同大小的视频时会优先读取缓存；下载时间未超过 5 小时时直接加载本地弹幕，超过 5 小时后使用已记录的剧集信息重新请求弹幕并覆盖缓存文件。每次命中都会刷新最后使用时间，超过 30 天未使用的缓存文件会在插件启动时自动清理。
 
 缓存默认开启，文件保存在 `~~/uosc_danmaku-cache`。可以通过以下选项关闭缓存、更换目录或修改清理周期：
 
@@ -497,9 +497,11 @@ danmaku_cache
 danmaku_cache=yes
 danmaku_cache_path=~~/uosc_danmaku-cache
 danmaku_cache_expire_days=30
+danmaku_cache_refresh_hours=5
 ```
 
 将 `danmaku_cache_expire_days` 设为 `0` 可禁用过期清理。
+将 `danmaku_cache_refresh_hours` 设为 `0` 可禁用定时刷新。
 
 </details>
 
