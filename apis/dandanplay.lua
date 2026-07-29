@@ -74,6 +74,7 @@ function set_episode_id(input, from_menu, api_server)
     DANMAKU.api_server = selected_server
 
     local episodeId = tonumber(input)
+    DANMAKU.episode_id = episodeId
     write_history(episodeId, selected_server)
     set_danmaku_button()
     fetch_danmaku(episodeId, from_menu, selected_server)
@@ -298,6 +299,7 @@ local function match_anime()
     if title:match("OVA") or title:match("OAD") then
         anime_type = "ova"
     end
+    DANMAKU.search_keyword = DANMAKU.search_keyword or title
 
     -- 并发在多个 api_server 上搜索，遇到第一个可接受的匹配就取消其余请求
     local encoded_query = url_encode(title)
@@ -400,6 +402,7 @@ local function match_file(file_path, file_name, callback)
     if hash then msg.info('hash:', hash) end
 
     local title, season_num, episode_num = parse_title()
+    DANMAKU.search_keyword = DANMAKU.search_keyword or title or file_name
     if title and episode_num then
         if season_num then
             file_name = title .. " S" .. season_num .. "E" .. episode_num
@@ -518,7 +521,7 @@ function save_danmaku_downloaded(url, downloaded_file)
 end
 
 -- 处理获取到的数据
-function handle_fetched_danmaku(data, url, from_menu)
+function handle_fetched_danmaku(data, url, from_menu, cache_context)
     if data and data["comments"] then
         if data["count"] == 0 then
             if DANMAKU.sources[url] == nil then
@@ -529,6 +532,7 @@ function handle_fetched_danmaku(data, url, from_menu)
             return
         end
         save_danmaku_data(data["comments"], url, "api_server")
+        cache_dandanplay_comments(data["comments"], cache_context)
         load_danmaku(from_menu)
     else
         show_message("无数据", 3)
@@ -540,6 +544,7 @@ end
 -- 通过danmaku api（url）+id获取弹幕
 function fetch_danmaku(episodeId, from_menu, api_server)
     local url = api_server .. "/api/v2/comment/" .. episodeId .. "?withRelated=true&chConvert=0"
+    local cache_context = build_danmaku_cache_context(episodeId, api_server)
     show_message("弹幕加载中...", 30)
     msg.verbose("尝试获取弹幕：" .. url)
     local args = make_danmaku_request_args("GET", url)
@@ -549,7 +554,7 @@ function fetch_danmaku(episodeId, from_menu, api_server)
     end
 
     fetch_danmaku_data(args, function(data)
-        handle_fetched_danmaku(data, url, from_menu)
+        handle_fetched_danmaku(data, url, from_menu, cache_context)
     end)
 end
 

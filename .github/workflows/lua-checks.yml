@@ -24,3 +24,5 @@ jobs:
         run: lua5.1 tests/parse_benchmark.lua
       - name: Test credential handling
         run: lua5.1 tests/credentials_test.lua
+      - name: Test local danmaku cache
+        run: lua5.1 tests/cache_test.lua

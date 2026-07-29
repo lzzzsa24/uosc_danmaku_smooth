@@ -1362,6 +1362,7 @@ mp.register_script_message("search-anime-event", function(query)
     if uosc_available then
         mp.commandv("script-message-to", "uosc", "close-menu", "menu_danmaku")
     end
+    DANMAKU.search_keyword = query
     local name, class = query:match("^(.-)%s*|%s*(.-)%s*$")
     if name and class then
         query_extra(name, class)
